@@ -33,7 +33,6 @@ class LaneAvoidEnv(gym.Env):
         self.action_space = spaces.Discrete(3)
 
         # Observation: y, vy, (dx,dy)*num_obstacles
-        # Definiramo realne granice radi stabilnosti u učenju
         high = np.array([1.0, 1.0] + [5.0, 2.0] * self.num_obstacles, dtype=np.float32)
         self.observation_space = spaces.Box(low=-high, high=high, dtype=np.float32)
 
@@ -55,12 +54,14 @@ class LaneAvoidEnv(gym.Env):
     def step(self, action: int):
         self.step_count += 1
 
+        info = {"event": "none"}  # <- KLJUČNO: razlog završetka epizode
+
         # 1) akcija utječe na bočnu brzinu
         if action == 0:      # lijevo
             self.vy -= 0.5
         elif action == 2:    # desno
             self.vy += 0.5
-        # action == 1 -> ravno (bez promjene)
+        # action == 1 -> ravno
 
         # ograniči vy
         self.vy = float(np.clip(self.vy, -1.0, 1.0))
@@ -70,7 +71,7 @@ class LaneAvoidEnv(gym.Env):
 
         # 3) pomak prepreka prema autu (dx se smanjuje)
         for obs in self.obstacles:
-            obs[0] -= 0.25  # "relativna brzina" prepreka
+            obs[0] -= 0.25
 
         # 4) respawn prepreka kad prođu auto
         for obs in self.obstacles:
@@ -88,6 +89,7 @@ class LaneAvoidEnv(gym.Env):
         if abs(self.y) > 1.0:
             terminated = True
             reward = -5.0
+            info["event"] = "lane_departure"
 
         # 6) sudar: ako je prepreka vrlo blizu u x i y
         if not terminated:
@@ -95,6 +97,7 @@ class LaneAvoidEnv(gym.Env):
                 if abs(dx) < 0.2 and abs(self.y - dy) < 0.2:
                     terminated = True
                     reward = -10.0
+                    info["event"] = "collision"
                     break
 
         # 7) kazne za "nesigurnu" vožnju (glatko + centrirano)
@@ -104,8 +107,9 @@ class LaneAvoidEnv(gym.Env):
         # 8) truncation ako epizoda traje predugo
         if self.step_count >= self.max_steps and not terminated:
             truncated = True
+            info["event"] = "timeout"
 
-        return self._get_obs(), float(reward), terminated, truncated, {}
+        return self._get_obs(), float(reward), terminated, truncated, info
 
     def _get_obs(self):
         obs = [self.y, self.vy]
